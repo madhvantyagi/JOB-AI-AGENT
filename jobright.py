@@ -1,151 +1,105 @@
-from browser_use import Agent,  Browser,Controller, ActionResult 
-from browser_use.browser.context import BrowserContextConfig ,BrowserContext
+from browser_use import Agent, Browser, Controller, ActionResult , BrowserConfig
+from browser_use.browser.context import BrowserContextConfig, BrowserContext
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 import re
 import os
 import asyncio
 import logging
-
-
-# iniating custom method controller lol
-controller = Controller()
+from Agent.JobAgent import JobAgent
+from FIles.resume_details import User_Details
+from Controllers.CoverLetter import job_apply_controller
+from Agent_i_jobs.subAgents import create_account_agent
 
 
 logging.basicConfig(level=logging.INFO)
 
-
 # Load environment variables
-load_dotenv()  
+load_dotenv()
 openai_api_key = os.getenv('OPENAI_API_KEY')
-llm = ChatOpenAI(
-    model="gpt-4o",
-    temperature=0.0,
-)
-# Browser Configuration
 
-config = BrowserContextConfig(
-    cookies_file="path/to/cookies.json",
+# Browser Configuration
+context_config = BrowserContextConfig(
     wait_for_network_idle_page_load_time=1.5,
     browser_window_size={'width': 1280, 'height': 1100},
     highlight_elements=True,
     viewport_expansion=-1,
 )
+browser_config = BrowserConfig(
+    browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'  # Replace with your Chrome path
+)
+browser = Browser(config=browser_config)
+context = BrowserContext(browser=browser, config=context_config)
 
-browser = Browser()
-context = BrowserContext(browser=browser, config=config)
-# Basic logic methods
 initial_actions = [
-    {'open_tab': {'url': ' https://jobright.ai/jobs/recommend '}},
- 
+    {'open_tab': {'url': 'https://jobright.ai/jobs/recommend'}}
 ]
 
-class MainMemory:
-    def __init__(self):
-        self.courses = []
-        self.course_count = 0
-    def add_course(self, course):
-        self.courses.append(course)
-        self.course_count += 1
-    def retrive_courses(self):
-        return self.courses
+# Extract only the important sensitive data from User_Details
+sensitive_data = {
+    'user_name': User_Details['name'],
+    'user_email': User_Details['email'],
+    'user_phone': User_Details['phone'],
+    'user_address': User_Details['address'],
+    'work_authorization': User_Details['work_authorization'],
+    'sponsorship': User_Details['sponsorship'],
+    'veteran': User_Details['veteran']
+}
 
-
-
-
-
-
-
-
-sensitive_data = {'firstname' : 'Madhvan' , 'lastname' : 'Tyagi' , 'email' : 'madhav.harsh@icloud.com' , 'phone' : '5513592567' , 'address' : '26 charles st, jresey city, NJ 07307' , 'city' : 'jersey city' , 'state' : 'NJ' , 'zip' : '07307' ,'linkedIn':'https://www.linkedin.com/in/madhvan-tyagi-10a44a222/'}
-
-
-
-
-
-
-
-agent = Agent(
-    browser_context=context,
-    task='''
-Navigate to the Website
-
-Open the browser and go to the specified URL.
-
-Sign In
-
-Click on the “Sign in with Google” option.
-
-Proceed with the authentication process.
-
-Complete Human Verification
-
-When the website asks for human verification (e.g., a checkbox), wait a few seconds.
-
-Click the checkbox once it becomes interactable.
-
-Adjust Job Sorting Options
-
-Identify the job sort dropdown menu.
-
-Change the setting from “Recommended” to “Top Matched.”
-
-Select and Start Application on the First Job
-
-Once the jobs are sorted correctly, choose the first job listing.
-
-Begin the application process.
-
-Utilize Sensitive Information
-
-When filling out the application form, retrieve the personal details from the sensitive_data object.
-
-Map each application field (e.g., first name, last name, email, phone, address, city, state, zip code, LinkedIn URL) to its corresponding value from the sensitive_data dictionary.
-
-Ensure all fields are correctly and securely populated.
-
-Upload Resume
-
-When prompted with a file upload button during the application process, initiate the upload of the resume file.
-
-Finalize the Application Process
-
-After completing the application, return to the main website.
-
-Click on the “Yes, I applied” button to confirm and complete the job application.
-    
-    ''',
-    initial_actions=initial_actions,
-    llm=llm,
-    sensitive_data=sensitive_data,
-    use_vision=True,             
-    controller=controller 
-    # Add delay between actions
+llm = ChatOpenAI(
+    model="gpt-4.1",
+    temperature=0.0,
+    api_key=openai_api_key
 )
 
+task = '''
+    Navigate to the Website
+    Open the browser and go to the specified URL.
+
+    1.1) Adjust Job Sorting Options
+    Identify the job sort dropdown menu on the right top corner of webpage .
+    Change the setting from "Recommended" to "Top Matched."
+    Select and Start Application on the First Job
+
+    1.2) Once the jobs are sorted correctly, choose the first job listing.
+    Begin the application process by clicking on Apply Now.
+
+    1.3) Start Applying Job by Clicking on Apply button
+
+    1.4)After you come to Job application page of company , you have to find Apply now button to start application 
+ 
+ - if button not there :
+    1 ) look by scrolling down to bottom of page or try to see if there any other button similar , then just click on it 
+    2 ) then start applying application , keep going on you have all the data , use it to fill application
+'''
 
 
 
 async def main():
     try:
-       async with await browser.new_context() as context:
-        history = await agent.run()
-        input = input("Press Enter to close the browser...")
-        print(history)
-         
-    except Exception as e:    
-        print(f"An error occurred: {e}")
-    
+        async with await browser.new_context() as context:
+            job_agent = JobAgent(
+                task=task,
+                llm=llm,
+                browser=context,
+                controller=job_apply_controller,
+                sensitive_data=sensitive_data,
+                initial_actions=initial_actions,
+               
+                )
+            job_agent.initiate_agent_task()
+            await job_agent.run_agent()
+            logging.info("Agent task1 completed")
+
+            # running the login agent if needed
+            await create_account_agent(context)
+
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+
     finally:
-        # Ensure browser is closed properly
         await browser.close()
         logging.info("Browser closed")
 
-# Run the async function
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
-
-   
